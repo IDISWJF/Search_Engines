@@ -127,8 +127,9 @@ bool ParseTitle(const std::string& html,std::string* title)
   return true;
 }
 
+//https://www.boost.org/doc/libs/1_59_0/doc/  html/xpressive.html
 //boost文档有有个统一的前缀
-//https://www.boost.org/doc/libs/1_59_0/
+//https://www.boost.org/doc/libs/1_59_0/doc 
 //URL后半部分可以通过该文档的路劲中解析出来
 //文档的路径形如
 //../Search_Engines/html/xpressive.html
@@ -136,7 +137,7 @@ bool ParseTitle(const std::string& html,std::string* title)
 // html/xpressive.html
 bool ParseUrl(const std::string& file_path,std::string* url)
 {
-  std::string prefix = "https://www.boost.org/doc/libs/1_59_0/";
+  std::string prefix = "https://www.boost.org/doc/libs/1_59_0/doc/";
   std::string tail = file_path.substr(g_input_path.size());
   *url = prefix +tail;
   return true;
