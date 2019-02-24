@@ -2,8 +2,11 @@
 #include<iostream>
 #include<fstream>
 #include"util.hpp"
+#include<algorithm>
+#include<jsoncpp/json/json.h>
 namespace searcher
 {
+  ///////////索引模块实现////////////////
   const char* const DICT_PATH = "./jieba_dict/jieba.dict.utf8";
   const char* const HMM_PATH = "./jieba_dict/hmm_model.utf8";
   const char* const USER_DICT_PATH = "./jieba_dict/user.dict.utf8";
@@ -125,6 +128,7 @@ namespace searcher
       Weight weight;
       weight.doc_id = doc_info.doc_id;
       weight.weight = 10 * word_pair.second.title_cnt  + word_pair.second.content_cnt;
+      weight.key = word_pair.first;//把这个词记录到Weight中方便后面使用
       //4：如果该分词结果在倒排中不存在，就构建新的键值对
       //5：如果该分词结果在倒排中存在，找到对应的值（vector）构建一个新的
       InvertedList& inverted_list = inverted_index_[word_pair.first];
@@ -136,5 +140,103 @@ namespace searcher
   void Index::CutWord(const std::string& input,std::vector<std::string>* output)
   {
     jieba_.CutForSearch(input,*output);
+  }
+  //////////////以下是搜索模块实现////////////////
+  bool Searcher::Init(const std::string& input_path)
+  {
+    return index_->Build(input_path);
+  }
+
+  bool Searcher::Search(const std::string& query,std::string* json_result)
+  {
+    //1分词：对查询词进行分词
+    std::vector<std::string>tokens;
+    index_->CutWord(query,&tokens);
+    //2触发：针对分词结果查倒排索引，找到那些文件是有相关性的
+    std::vector<Weight> all_token_result;
+    for(std::string word : tokens)
+    {
+      boost::to_lower(word);
+      auto* inverted_list = index_->GetInvertedList(word);
+      if(inverted_list == nullptr)
+      {
+        continue;//不能因为某个词在索引中不存在就影响其他查询
+      }
+      //此处进一步改进是考虑不同的分词结果对应相同文档id的情况
+      //此时需要去重，和权重合并
+      //实现思路类似于有序链表合并
+      all_token_result.insert(all_token_result.end(),
+          inverted_list->begin(),inverted_list->end());//把invertered_list结果尾插
+    }
+    //3:排序：把这些结果按照一定规则排序
+    //sort第三个参数可以使用 仿函数/函数指针/lambda表达式
+    //lambda表达式就是一个匿名函数
+    //将匿名函数赋给变量，在使用变量时就调用匿名函数
+    std::sort(all_token_result.begin(),all_token_result.end(),
+        [](const Weight& w1,const Weight& w2){
+        return w1.weight > w2.weight;
+        });    
+    //4构造结果：查正排，找到每个搜索结果的标题，正文，url 
+    //预期构造成的结果形如
+    //[
+    //{
+    //"title":"标题"
+    //"desc" : "描述"
+    //"url" : "url"
+    //}
+    //]
+    Json::Value results;//表示所有的搜索结果JSON对象
+    for(const auto& weight : all_token_result)
+    {
+      const auto* doc_info = index_->GetDocInfo(weight.doc_id);
+      if(doc_info == nullptr)
+      {
+        continue;
+      }
+      //如何构造成JSON结构？有第三方库实现 jsoncpp
+      Json::Value result;//表示一条搜索结果的JSON对象
+      result["title"] = doc_info->title;
+      result["url"] = doc_info->url;
+      result["content"] = GetDesc(doc_info->content,weight.key);
+      results.append(result); 
+    }
+    //借助jsoncpp能快速完成JSON对象和字符串的转换
+    Json::FastWriter writer;
+    *json_result = writer.write(results);
+    return true;
+  }
+  std::string Searcher::GetDesc(const std::string& content,const std::string& key)
+  {
+    //描述是正文的一部分，描述词最好要包含查询词
+    //1：先在正文中查找词位置
+    size_t pos = content.find(key);
+    if(pos == std::string::npos)
+    {
+      //该词在正文中不存在，只在标题中出现
+      //此时直接从开头截取一段即可
+      //100是随机选择的
+      if(content.size() < 100)
+      {
+        return content;
+      }
+      else 
+      {
+        return content.substr(0,100) + "...";
+      }
+    }
+
+    //2：往前截取一段，往后截取一段
+    //已该词为基准，往前截取50个字节，往后截取50个字节
+    size_t beg = pos < 50 ? 0 : pos - 50;
+    if(beg + 100 >= content.size())
+    {
+      //beg之后长度不足100，就把剩余的内容算作描述
+      return content.substr(beg);
+    }
+    else
+    {
+      return content.substr(beg,160) + "...";
+    }
+
   }
 }//end searcher 

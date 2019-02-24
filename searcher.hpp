@@ -14,11 +14,13 @@ namespace searcher
     std::string content;
     std::string url;
   };
+  //Weight表示某个词在文档中出现过，以及该词的权重
   struct Weight
   {
     uint64_t doc_id;//uint_64_t 不区分系统，必须占64位
     int weight;//权重，为了后面进行排序做准备
     //当前我们采用词频计算权重
+    std::string key;//表示
   };
 
   //类型重命名，创建一个“倒排拉链类型”
@@ -53,11 +55,20 @@ namespace searcher
   class Searcher
   {
     private:
-      Index* index_;
+      Index* index_;//光有指针无法使用，需要构造函数new一个对应对象
     public:
+      Searcher()
+        :index_(new Index())
+      {}
+      ~Searcher()
+      {
+        delete index_;
+      }
       //加载索引
-      bool Init();
-//通过特定的格式再result字符串中表示搜索结果
+      bool Init(const std::string& input_path);
+      //通过特定的格式再result字符串中表示搜索结果
       bool Search(const std::string& query,std::string* result);
+    private:
+      std::string GetDesc(const std::string& content,const std::string& key);
   };
 }//end searcher
